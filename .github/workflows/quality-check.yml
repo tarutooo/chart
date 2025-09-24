@@ -1,0 +1,80 @@
+name: プロジェクト品質チェック
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: ファイル構成チェック
+      run: |
+        echo "必須ファイルの存在確認..."
+        test -f index.html || (echo "index.html が見つかりません" && exit 1)
+        test -f script.js || (echo "script.js が見つかりません" && exit 1)
+        test -f style.css || (echo "style.css が見つかりません" && exit 1)
+        test -f README.md || (echo "README.md が見つかりません" && exit 1)
+        echo "✅ すべての必須ファイルが存在します"
+    
+    - name: HTMLバリデーション
+      run: |
+        echo "HTMLの基本構文チェック..."
+        # 基本的なHTMLタグの存在確認
+        grep -q "<!DOCTYPE html>" index.html || (echo "DOCTYPE宣言がありません" && exit 1)
+        grep -q "<html" index.html || (echo "html タグがありません" && exit 1)
+        grep -q "<head>" index.html || (echo "head タグがありません" && exit 1)
+        grep -q "<body>" index.html || (echo "body タグがありません" && exit 1)
+        echo "✅ HTML基本構文チェック完了"
+    
+    - name: JavaScript基本チェック
+      run: |
+        echo "JavaScript基本構文チェック..."
+        # 基本的な構文エラーチェック（Node.jsで構文解析）
+        node -c script.js || (echo "JavaScript構文エラーがあります" && exit 1)
+        echo "✅ JavaScript基本構文チェック完了"
+    
+    - name: ファイルサイズチェック
+      run: |
+        echo "ファイルサイズチェック..."
+        # 各ファイルが適切なサイズかチェック（1MB以下）
+        find . -name "*.js" -size +1M -exec echo "JavaScript ファイルが大きすぎます: {}" \; -exec exit 1 \;
+        find . -name "*.css" -size +500k -exec echo "CSS ファイルが大きすぎます: {}" \; -exec exit 1 \;
+        find . -name "*.html" -size +500k -exec echo "HTML ファイルが大きすぎます: {}" \; -exec exit 1 \;
+        echo "✅ ファイルサイズチェック完了"
+    
+    - name: セキュリティ基本チェック
+      run: |
+        echo "セキュリティ基本チェック..."
+        # 基本的なセキュリティリスクをチェック
+        if grep -r "eval(" . --include="*.js" --include="*.html"; then
+          echo "⚠️  eval() の使用が検出されました。セキュリティリスクの可能性があります。"
+        fi
+        if grep -r "innerHTML.*+" . --include="*.js"; then
+          echo "⚠️  innerHTML での文字列結合が検出されました。XSSリスクの可能性があります。"
+        fi
+        echo "✅ セキュリティ基本チェック完了"
+    
+    - name: ドキュメント更新チェック
+      run: |
+        echo "ドキュメント更新チェック..."
+        # READMEが適切に更新されているかチェック
+        if [ -f README.md ]; then
+          if ! grep -q "機能" README.md; then
+            echo "⚠️  README.mdに機能説明が不足している可能性があります"
+          fi
+          if ! grep -q "使用方法" README.md; then
+            echo "⚠️  README.mdに使用方法が不足している可能性があります"
+          fi
+        fi
+        echo "✅ ドキュメントチェック完了"
+    
+    - name: チェック完了
+      run: |
+        echo "🎉 すべてのチェックが完了しました！"
+        echo "プロジェクトは共同編集の準備が整っています。"
