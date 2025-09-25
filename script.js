@@ -7,6 +7,17 @@ document.addEventListener('DOMContentLoaded', function() {
     ];
     let nextId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
 
+    // API base and shared key (for multi-tenant collaboration)
+    const API_BASE = 'api';
+    const PROJECT_KEY = (function() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const k = params.get('key') || localStorage.getItem('ganttProjectKey') || 'default';
+            localStorage.setItem('ganttProjectKey', k);
+            return k;
+        } catch (_) { return 'default'; }
+    })();
+
     // 今日のローカル日付(YYYY-MM-DD)を取得
     const todayISO = toLocalISODate(new Date());
     // タスク塗りの固定色
@@ -19,6 +30,50 @@ document.addEventListener('DOMContentLoaded', function() {
     const addRowBtn = document.getElementById('add-row-btn');
     const resetBtn = document.getElementById('reset-btn');
 
+    // --------------------
+    // Storage functions (Server-first with local fallback for offline)
+    // --------------------
+    async function saveTasksToServer() {
+        try {
+            const res = await fetch(`${API_BASE}/save.php`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: PROJECT_KEY, tasks, meta: {} })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'save failed');
+            return true;
+        } catch (e) {
+            console.warn('Server save failed, falling back to local storage.', e);
+            return false;
+        }
+    }
+
+    const saveTasksToServerDebounced = debounce(() => { saveTasksToServer(); }, 500);
+
+    function saveTasks() {
+        // Always keep local copy for offline
+        saveTasksToStorage();
+        // Try server (debounced)
+        saveTasksToServerDebounced();
+    }
+
+    async function loadTasksFromServer() {
+        try {
+            const res = await fetch(`${API_BASE}/load.php?key=${encodeURIComponent(PROJECT_KEY)}`, { cache: 'no-store' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            if (data && data.ok && Array.isArray(data.tasks)) {
+                return data.tasks;
+            }
+        } catch (e) {
+            console.warn('Server load failed, using local/cookie/default.', e);
+        }
+        return null;
+    }
+
+    // 既存：ローカル保存（サーバー失敗時のフォールバックとして利用）
     // Storage functions (localStorage primary, cookie fallback for legacy)
     function saveTasksToStorage() {
         try {
@@ -170,7 +225,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 task[field] = value;
             }
             renderGanttChart();
-            saveTasksToStorage();
+            saveTasks();
         }
     }
 
@@ -220,14 +275,14 @@ document.addEventListener('DOMContentLoaded', function() {
         tasks.push(newTask);
         renderSpreadsheet();
         renderGanttChart();
-    saveTasksToStorage();
+    saveTasks();
     }
 
     function deleteTask(id) {
         tasks = tasks.filter(t => t.id !== id);
         renderSpreadsheet();
         renderGanttChart();
-    saveTasksToStorage();
+    saveTasks();
     }
 
     function renderGanttChart() {
@@ -476,9 +531,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (container) container.addEventListener('scroll', saveScrollPosition, { passive: true });
 
     // リロード/タブ非表示時に未保存の編集をフラッシュ
-    window.addEventListener('beforeunload', () => { flushInputsToTasks(); saveTasksToStorage(); saveScrollPosition(); });
+    window.addEventListener('beforeunload', () => { flushInputsToTasks(); saveTasks(); saveScrollPosition(); });
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') { flushInputsToTasks(); saveTasksToStorage(); saveScrollPosition(); }
+    if (document.visibilityState === 'hidden') { flushInputsToTasks(); saveTasks(); saveScrollPosition(); }
     });
 
     // 入力欄から現在の値を読み取り、tasksに反映して保存
@@ -536,6 +591,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (targetTab === 'gantt') {
                     setTimeout(() => {
                         renderGanttChart();
+
+                        // 初回ロード時にサーバーから同期（成功時は画面再描画）
+                        (async () => {
+                            const serverTasks = await loadTasksFromServer();
+                            if (Array.isArray(serverTasks) && serverTasks.length >= 0) {
+                                tasks = serverTasks.length ? serverTasks : (loadTasksFromStorage() || loadTasksFromCookie() || tasks);
+                                nextId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
+                                renderSpreadsheet();
+                                renderGanttChart();
+                                // ローカルにも反映
+                                saveTasksToStorage();
+                            }
+                        })();
                     }, 100);
                 }
                 

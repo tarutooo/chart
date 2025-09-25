@@ -58,3 +58,8 @@ temp/
 
 # Development server files
 .vscode-test/
+
+# Server-side generated files
+data/*.json
+data/*.csv
+!data/.gitkeep

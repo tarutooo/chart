@@ -8,6 +8,9 @@
 </head>
 <body>
   <h1>プロジェクト管理ツール</h1>
+  <p style="margin-top:-10px;color:#555;font-size:0.9rem;">
+    共同編集キー: <span id="project-key-label">default</span>（URLの ?key=... で切替）
+  </p>
   
   <!-- タブナビゲーション -->
   <div class="tab-container">
@@ -86,5 +89,14 @@
   </div>
 
   <script src="script.js"></script>
+  <script>
+    (function(){
+      try{
+        var k = new URLSearchParams(location.search).get('key') || localStorage.getItem('ganttProjectKey') || 'default';
+        var el = document.getElementById('project-key-label');
+        if(el) el.textContent = k;
+      }catch(_){/* no-op */}
+    })();
+  </script>
 </body>
 </html>
